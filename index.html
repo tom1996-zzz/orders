@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tom's 订单系统 v31.0 (装柜筛选+导出模板)</title>
+    <title>Tom's 订单系统 v33.0 (万能日期识别版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -18,17 +18,8 @@
         .sync-status { font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: bold; }
         .status-online { background: #dcfce7; color: #166534; }
         .status-loading { background: #fef9c3; color: #854d0e; }
-        
-        .row-finished { 
-            text-decoration: line-through; 
-            color: #cbd5e1 !important; 
-            background-color: #f8fafc !important; 
-            opacity: 0.6;
-        }
+        .row-finished { text-decoration: line-through; color: #cbd5e1 !important; background-color: #f8fafc !important; opacity: 0.6; }
         .row-finished input { color: #cbd5e1 !important; }
-        .row-finished .text-amber-600, .row-finished .text-purple-600, 
-        .row-finished .text-blue-600, .row-finished .text-emerald-600 { color: #cbd5e1 !important; }
-        
         .highlight-deadline { color: #2563eb; font-weight: 800; border-bottom: 2px solid #dbeafe; }
     </style>
 </head>
@@ -39,7 +30,7 @@
             <div class="flex-1 grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div class="stat-card border-l-blue-600 flex items-center gap-3">
                     <i class="fas fa-search text-gray-400"></i>
-                    <input type="text" id="keywordSearch" oninput="render()" placeholder="搜索..." class="w-full bg-transparent border-none focus:outline-none text-sm font-bold">
+                    <input type="text" id="keywordSearch" oninput="render()" placeholder="搜索客户/单号..." class="w-full bg-transparent border-none focus:outline-none text-sm font-bold">
                 </div>
                 <div class="stat-card border-l-orange-500 text-center">
                     <p class="text-[9px] text-gray-400 uppercase font-bold">云端状态 <span id="cloudStatus" class="sync-status status-loading ml-2">同步中...</span></p>
@@ -59,12 +50,12 @@
                     <i class="fas fa-plus"></i> 新增订单
                 </button>
                 <div class="flex border bg-white rounded-xl shadow-sm overflow-hidden h-10">
-                    <label class="px-3 hover:bg-slate-50 flex items-center cursor-pointer border-r" title="导入数据">
+                    <label class="px-3 hover:bg-slate-50 flex items-center cursor-pointer border-r" title="导入文件">
                         <i class="fas fa-file-import text-blue-500"></i>
                         <input type="file" id="excel-input" class="hidden" accept=".xlsx, .xls, .json">
                     </label>
-                    <button onclick="downloadExcelTemplate()" class="px-3 hover:bg-slate-50 border-r" title="下载Excel模板"><i class="fas fa-file-excel text-emerald-600"></i></button>
-                    <button onclick="downloadBackupJSON()" class="px-3 hover:bg-slate-50 border-r" title="导出JSON备份"><i class="fas fa-save text-amber-500"></i></button>
+                    <button onclick="downloadExcelTemplate()" class="px-3 hover:bg-slate-50 border-r" title="下载模板"><i class="fas fa-file-excel text-emerald-600"></i></button>
+                    <button onclick="downloadBackupJSON()" class="px-3 hover:bg-slate-50 border-r" title="备份"><i class="fas fa-save text-amber-500"></i></button>
                     <button onclick="resetSystem()" class="px-3 hover:bg-red-50" title="清空"><i class="fas fa-trash-alt text-red-500"></i></button>
                 </div>
             </div>
@@ -108,13 +99,36 @@
 
         db.on('value', (s) => {
             const data = s.val();
-            // 默认按交期排序
             orders = data ? Object.values(data).sort((a,b) => (a.deadline||"9").localeCompare(b.deadline||"9")) : [];
             document.getElementById('cloudStatus').innerText = "实时同步";
             document.getElementById('cloudStatus').className = "sync-status status-online ml-2";
             updateMonthDropdown();
             render();
         });
+
+        // 强力日期转换逻辑
+        function forceDate(val) {
+            if (!val) return "";
+            try {
+                // 如果是 Excel 数字格式
+                if (typeof val === 'number') {
+                    const d = new Date(Math.round((val - 25569) * 86400 * 1000));
+                    return d.toISOString().split('T')[0];
+                }
+                // 如果是 Date 对象
+                if (val instanceof Date) return val.toISOString().split('T')[0];
+                // 如果是字符串，尝试清理
+                let s = String(val).trim().replace(/[./\\]/g, '-');
+                if (/\d{4}-\d{1,2}-\d{1,2}/.test(s)) {
+                    const parts = s.split('-');
+                    return `${parts[0]}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`;
+                }
+                // 尝试用原生解析
+                const nd = new Date(val);
+                if (!isNaN(nd.getTime())) return nd.toISOString().split('T')[0];
+            } catch(e) {}
+            return "";
+        }
 
         function upd(i, f, v) {
             orders[i][f] = (['hq', 'qty', 'price', 'receivedDeposit', 'receivedBalance'].includes(f)) ? parseFloat(v) || 0 : v;
@@ -142,8 +156,6 @@
 
             orders.forEach((o, i) => {
                 const match = (o.company + (o.po||'') + (o.productionOrder||'') + (o.model||'')).toLowerCase().includes(keyword);
-                
-                // 筛选逻辑核心：按“装柜日期”筛选
                 const loadMonth = o.loadDate ? o.loadDate.slice(0, 7) : "未定";
                 if ((monthVal !== "all" && loadMonth !== monthVal) || !match) return;
 
@@ -155,7 +167,7 @@
                 t_hq += (o.hq || 0); t_amt += total; t_bal += (total - (o.receivedDeposit + o.receivedBalance));
 
                 const tr = document.createElement('tr');
-                tr.className = `hover:bg-blue-50/40 transition-colors ${isFinished ? 'row-finished' : ''}`;
+                tr.className = `hover:bg-blue-50/40 ${isFinished ? 'row-finished' : ''}`;
                 
                 tr.innerHTML = `
                     <td class="px-4 py-4">
@@ -194,7 +206,7 @@
                         </div>
                     </td>
                     <td class="px-3 py-4 text-center">
-                        <button onclick="if(confirm('删除订单?')){orders.splice(${i},1);db.set(orders);}" class="text-gray-300 hover:text-red-500"><i class="fas fa-trash-alt"></i></button>
+                        <button onclick="if(confirm('删除?')){orders.splice(${i},1);db.set(orders);}" class="text-gray-300 hover:text-red-500"><i class="fas fa-trash-alt"></i></button>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -206,47 +218,66 @@
             document.getElementById('stat-bal').innerText = '$' + t_bal.toLocaleString();
         }
 
-        // 月份下拉更新逻辑：改为抓取“装柜日期”
         function updateMonthDropdown() {
             const s = document.getElementById('monthFilter');
             const months = [...new Set(orders.map(o => o.loadDate ? o.loadDate.slice(0, 7) : "未定"))].sort().reverse();
             s.innerHTML = '<option value="all">📅 全部装柜计划</option>';
             months.forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m;
+                const opt = document.createElement('option'); opt.value = m;
                 opt.innerText = m === "未定" ? "⏳ 尚未安排装柜" : m;
                 s.appendChild(opt);
             });
         }
 
-        // 下载Excel模板功能
         function downloadExcelTemplate() {
             const headers = [["公司", "PO", "生产单号", "柜数", "型号", "数量", "单价", "实收订金", "实收尾款", "交货日期", "验货日期", "装柜日期", "ETD日期"]];
             const ws = XLSX.utils.aoa_to_sheet(headers);
             const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "OrderTemplate");
+            XLSX.utils.book_append_sheet(wb, ws, "Template");
             XLSX.writeFile(wb, "Tom_Order_Template.xlsx");
         }
 
         document.getElementById('excel-input').addEventListener('change', function(e) {
             const f = e.target.files[0];
+            if (!f) return;
             const r = new FileReader();
             r.onload = (ev) => {
-                if(f.name.endsWith('.json')) { orders = JSON.parse(new TextDecoder().decode(ev.target.result)); db.set(orders); }
-                else {
-                    const wb = XLSX.read(new Uint8Array(ev.target.result), {type: 'array', cellDates: true});
-                    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-                    rows.forEach(r => orders.push({
+                if(f.name.endsWith('.json')) { orders = JSON.parse(new TextDecoder().decode(ev.target.result)); db.set(orders); return; }
+                
+                const wb = XLSX.read(new Uint8Array(ev.target.result), {type: 'array', cellDates: true});
+                const ws = wb.Sheets[wb.SheetNames[0]];
+                const data = XLSX.utils.sheet_to_json(ws);
+                
+                data.forEach(row => {
+                    // 关键词模糊匹配函数
+                    const find = (keys) => {
+                        const targetKey = Object.keys(row).find(k => keys.some(key => k.includes(key)));
+                        return targetKey ? row[targetKey] : null;
+                    };
+
+                    orders.push({
                         id: Date.now() + Math.random(),
-                        company: r["公司"]||"-", po: r["PO"]||"", productionOrder: r["生产单号"]||"", hq: r["柜数"]||0, model: r["型号"]||"-", qty: r["数量"]||0, price: r["单价"]||0,
-                        receivedDeposit: r["实收订金"]||0, receivedBalance: r["实收尾款"]||0, 
-                        deadline: r["交货日期"]||"", inspDate: r["验货日期"]||"", loadDate: r["装柜日期"]||"", etd: r["ETD日期"]||"",
+                        company: find(["公司", "客户"]) || "-",
+                        po: find(["PO", "单号"]) || "",
+                        productionOrder: find(["生产", "PROD"]) || "",
+                        hq: parseFloat(find(["柜", "HQ"])) || 0,
+                        model: find(["型号", "MODEL"]) || "-",
+                        qty: parseFloat(find(["数量", "QTY"])) || 0,
+                        price: parseFloat(find(["单价", "PRICE"])) || 0,
+                        receivedDeposit: parseFloat(find(["订金", "Deposit"])) || 0,
+                        receivedBalance: parseFloat(find(["尾款", "Balance"])) || 0,
+                        // 日期处理
+                        deadline: forceDate(find(["交货", "交期", "Deadline"])),
+                        inspDate: forceDate(find(["验货", "Insp"])),
+                        loadDate: forceDate(find(["装柜", "Load"])),
+                        etd: forceDate(find(["ETD", "离港"])),
                         packing: false, sinosure: false, docs: false
-                    }));
-                    db.set(orders);
-                }
+                    });
+                });
+                db.set(orders);
             };
             r.readAsArrayBuffer(f);
+            e.target.value = '';
         });
 
         function downloadBackupJSON() {

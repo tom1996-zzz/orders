@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tom's 订单系统 v34.0 (柜数统计优化版)</title>
+    <title>Tom's 订单系统 v37.0 (2分钟授权版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -21,6 +21,7 @@
         .row-finished { text-decoration: line-through; color: #cbd5e1 !important; background-color: #f8fafc !important; opacity: 0.6; }
         .row-finished input { color: #cbd5e1 !important; }
         .highlight-deadline { color: #2563eb; font-weight: 800; border-bottom: 2px solid #dbeafe; }
+        .auth-indicator { font-size: 10px; margin-top: 4px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -39,6 +40,7 @@
                         <span class="text-gray-300 mx-1">/</span> 
                         <span id="stat-total-hq" class="text-slate-800">0.0</span>
                     </p>
+                    <div id="authTimer" class="auth-indicator text-gray-300">需身份验证</div>
                 </div>
                 <div class="stat-card border-l-purple-500">
                     <select id="monthFilter" onchange="render()" class="w-full bg-transparent border-none font-bold text-sm focus:outline-none cursor-pointer"></select>
@@ -60,7 +62,7 @@
                     </label>
                     <button onclick="downloadExcelTemplate()" class="px-3 hover:bg-slate-50 border-r" title="模板"><i class="fas fa-file-excel text-emerald-600"></i></button>
                     <button onclick="downloadBackupJSON()" class="px-3 hover:bg-slate-50 border-r" title="备份"><i class="fas fa-save text-amber-500"></i></button>
-                    <button onclick="resetSystem()" class="px-3 hover:bg-red-50" title="清空"><i class="fas fa-trash-alt text-red-500"></i></button>
+                    <button onclick="secureReset()" class="px-3 hover:bg-red-50" title="清空系统"><i class="fas fa-trash-alt text-red-500"></i></button>
                 </div>
             </div>
         </div>
@@ -87,6 +89,10 @@
     </div>
 
     <script>
+        // --- 核心安全配置 ---
+        const MASTER_PASSWORD = "260329"; 
+        let authExpireTime = 0; // 授权过期的时间戳
+
         const firebaseConfig = {
             apiKey: "AIzaSyDFMZQ8Ni3mT98MahP1LwJpZBgrmqiqhV8",
             authDomain: "tom-order-2026.firebaseapp.com",
@@ -110,6 +116,89 @@
             render();
         });
 
+        // 身份验证逻辑：返回是否允许操作
+        function validateAccess() {
+            const now = Date.now();
+            // 如果当前时间小于过期时间，说明还在2分钟豁免期内
+            if (now < authExpireTime) {
+                return true; 
+            }
+            
+            // 否则，要求输入密码
+            const val = prompt("请输入管理密码 (260329):");
+            if (val === MASTER_PASSWORD) {
+                // 验证成功，设置2分钟（120,000毫秒）豁免期
+                authExpireTime = Date.now() + 120000;
+                startAuthUI();
+                return true;
+            } else {
+                if (val !== null) alert("密码错误，操作已取消");
+                return false;
+            }
+        }
+
+        // UI 倒计时提示
+        function startAuthUI() {
+            const timerEl = document.getElementById('authTimer');
+            const updateTimer = () => {
+                const remaining = Math.round((authExpireTime - Date.now()) / 1000);
+                if (remaining > 0) {
+                    timerEl.innerText = `🔓 授权中 (${remaining}s)`;
+                    timerEl.className = "auth-indicator text-emerald-500";
+                    setTimeout(updateTimer, 1000);
+                } else {
+                    timerEl.innerText = "需身份验证";
+                    timerEl.className = "auth-indicator text-gray-300";
+                }
+            };
+            updateTimer();
+        }
+
+        // 修改数据前的拦截器
+        function safeUpdate(i, field, value, originalElement = null) {
+            if (validateAccess()) {
+                // 执行更新
+                if (['hq', 'qty', 'price', 'receivedDeposit', 'receivedBalance'].includes(field)) {
+                    orders[i][field] = parseFloat(value) || 0;
+                } else {
+                    orders[i][field] = value;
+                }
+                db.set(orders);
+            } else {
+                // 验证失败，如果是输入框或复选框，需要把值改回去（刷新UI）
+                render(); 
+            }
+        }
+
+        function secureDelete(index) {
+            if (validateAccess()) {
+                if(confirm("确定删除该订单？")) {
+                    orders.splice(index, 1);
+                    db.set(orders);
+                }
+            }
+        }
+
+        function secureReset() {
+            if (validateAccess()) {
+                if (confirm("确定要删除所有云端数据吗？此操作无法撤销。")) {
+                    orders = [];
+                    db.set(orders);
+                }
+            }
+        }
+
+        function handleNewOrder() {
+            if (!validateAccess()) return;
+            orders.push({
+                id: Date.now(), company: "新客户", po: "", productionOrder: "", hq: 1, model: "-", qty: 0, price: 0, 
+                receivedDeposit: 0, depositDate: "", receivedBalance: 0, balanceDate: "", 
+                deadline: "", inspDate: "", loadDate: "", etd: "", 
+                sinosure: false, packing: false, docs: false
+            });
+            db.set(orders);
+        }
+
         function forceDate(val) {
             if (!val) return "";
             try {
@@ -124,21 +213,6 @@
                 if (!isNaN(nd.getTime())) return nd.toISOString().split('T')[0];
             } catch(e) {}
             return "";
-        }
-
-        function upd(i, f, v) {
-            orders[i][f] = (['hq', 'qty', 'price', 'receivedDeposit', 'receivedBalance'].includes(f)) ? parseFloat(v) || 0 : v;
-            db.set(orders);
-        }
-
-        function handleNewOrder() {
-            orders.push({
-                id: Date.now(), company: "新客户", po: "", productionOrder: "", hq: 1, model: "-", qty: 0, price: 0, 
-                receivedDeposit: 0, depositDate: "", receivedBalance: 0, balanceDate: "", 
-                deadline: "", inspDate: "", loadDate: "", etd: "", 
-                sinosure: false, packing: false, docs: false
-            });
-            db.set(orders);
         }
 
         function render() {
@@ -159,12 +233,8 @@
                 const received = (parseFloat(o.receivedDeposit)||0) + (parseFloat(o.receivedBalance)||0);
                 const isFinished = o.etd && o.etd < today; 
                 
-                // 统计逻辑：
-                // 1. 如果没结单，计入“待装柜数”
                 if(!isFinished) pending_hq += (parseFloat(o.hq) || 0);
-                // 2. 无论是否结单，计入“总HQ数”
                 total_hq += (parseFloat(o.hq) || 0);
-                
                 t_amt += total; 
                 t_bal += (total - received);
 
@@ -173,48 +243,47 @@
                 
                 tr.innerHTML = `
                     <td class="px-4 py-4">
-                        <div contenteditable="true" onblur="upd(${i},'company',this.innerText.trim())" class="font-bold text-slate-800 text-sm mb-1">${o.company}</div>
+                        <div contenteditable="true" onblur="safeUpdate(${i},'company',this.innerText.trim())" class="font-bold text-slate-800 text-sm mb-1">${o.company}</div>
                         <div class="flex flex-col gap-0.5">
-                            <div class="text-[9px] text-amber-600 font-bold uppercase">PO: <span contenteditable="true" onblur="upd(${i},'po',this.innerText.trim())" class="border-b border-amber-100 min-w-[40px] inline-block">${o.po||'--'}</span></div>
-                            <div class="text-[9px] text-purple-600 font-bold uppercase">PROD: <span contenteditable="true" onblur="upd(${i},'productionOrder',this.innerText.trim())" class="border-b border-purple-100 min-w-[40px] inline-block">${o.productionOrder||'--'}</span></div>
+                            <div class="text-[9px] text-amber-600 font-bold uppercase">PO: <span contenteditable="true" onblur="safeUpdate(${i},'po',this.innerText.trim())" class="border-b border-amber-100 min-w-[40px] inline-block">${o.po||'--'}</span></div>
+                            <div class="text-[9px] text-purple-600 font-bold uppercase">PROD: <span contenteditable="true" onblur="safeUpdate(${i},'productionOrder',this.innerText.trim())" class="border-b border-purple-100 min-w-[40px] inline-block">${o.productionOrder||'--'}</span></div>
                         </div>
                     </td>
-                    <td class="px-2 py-4 text-center font-black text-blue-600"><input type="number" step="0.1" onchange="upd(${i},'hq',this.value)" class="clean-input text-center" value="${o.hq}"></td>
+                    <td class="px-2 py-4 text-center font-black text-blue-600"><input type="number" step="0.1" onchange="safeUpdate(${i},'hq',this.value)" class="clean-input text-center" value="${o.hq}"></td>
                     <td class="px-3 py-4">
-                        <div contenteditable="true" onblur="upd(${i},'model',this.innerText.trim())" class="truncate font-mono font-bold">${o.model}</div>
-                        <div class="text-[9px] text-gray-400 font-bold">Q:<input type="number" onchange="upd(${i},'qty',this.value)" class="w-8 clean-input" value="${o.qty}"> P:<input type="number" step="0.01" onchange="upd(${i},'price',this.value)" class="w-12 clean-input" value="${o.price}"></div>
+                        <div contenteditable="true" onblur="safeUpdate(${i},'model',this.innerText.trim())" class="truncate font-mono font-bold">${o.model}</div>
+                        <div class="text-[9px] text-gray-400 font-bold">Q:<input type="number" onchange="safeUpdate(${i},'qty',this.value)" class="w-8 clean-input" value="${o.qty}"> P:<input type="number" step="0.01" onchange="safeUpdate(${i},'price',this.value)" class="w-12 clean-input" value="${o.price}"></div>
                     </td>
                     <td class="px-3 py-4 text-right font-black bg-slate-50/50 text-slate-700">$${total.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
                     <td class="px-3 py-4 text-right text-emerald-600 font-bold">
-                        <input type="number" onchange="upd(${i},'receivedDeposit',this.value)" class="clean-input text-right" value="${o.receivedDeposit}">
-                        <input type="date" onchange="upd(${i},'depositDate',this.value)" class="clean-input text-[8px] opacity-40 text-right" value="${o.depositDate || ''}">
+                        <input type="number" onchange="safeUpdate(${i},'receivedDeposit',this.value)" class="clean-input text-right" value="${o.receivedDeposit}">
+                        <input type="date" onchange="safeUpdate(${i},'depositDate',this.value)" class="clean-input text-[8px] opacity-40 text-right" value="${o.depositDate || ''}">
                     </td>
                     <td class="px-3 py-4 text-right text-blue-600 font-bold">
-                        <input type="number" onchange="upd(${i},'receivedBalance',this.value)" class="clean-input text-right" value="${o.receivedBalance}">
-                        <input type="date" onchange="upd(${i},'balanceDate',this.value)" class="clean-input text-[8px] opacity-40 text-right" value="${o.balanceDate || ''}">
+                        <input type="number" onchange="safeUpdate(${i},'receivedBalance',this.value)" class="clean-input text-right" value="${o.receivedBalance}">
+                        <input type="date" onchange="safeUpdate(${i},'balanceDate',this.value)" class="clean-input text-[8px] opacity-40 text-right" value="${o.balanceDate || ''}">
                     </td>
                     <td class="px-3 py-4 text-center font-black ${Math.abs(total-received) > 0.01 ? 'text-red-500' : 'text-slate-200'}">$${(total-received).toFixed(2)}</td>
                     <td class="px-4 py-4 text-[9px] bg-slate-50/50 border-x">
-                        <div class="flex justify-between mb-0.5"><span>交期:</span><input type="date" onchange="upd(${i},'deadline',this.value)" class="w-24 clean-input text-right highlight-deadline" value="${o.deadline||''}"></div>
-                        <div class="flex justify-between mb-0.5 text-orange-600 font-bold"><span>验货:</span><input type="date" onchange="upd(${i},'inspDate',this.value)" class="w-24 clean-input text-right" value="${o.inspDate||''}"></div>
-                        <div class="flex justify-between mb-0.5 text-emerald-600 font-bold"><span>装柜:</span><input type="date" onchange="upd(${i},'loadDate',this.value)" class="w-24 clean-input text-right" value="${o.loadDate||''}"></div>
-                        <div class="flex justify-between text-blue-500 font-black"><span>ETD:</span><input type="date" onchange="upd(${i},'etd',this.value)" class="w-24 clean-input text-right" value="${o.etd||''}"></div>
+                        <div class="flex justify-between mb-0.5"><span>交期:</span><input type="date" onchange="safeUpdate(${i},'deadline',this.value)" class="w-24 clean-input text-right highlight-deadline" value="${o.deadline||''}"></div>
+                        <div class="flex justify-between mb-0.5 text-orange-600 font-bold"><span>验货:</span><input type="date" onchange="safeUpdate(${i},'inspDate',this.value)" class="w-24 clean-input text-right" value="${o.inspDate||''}"></div>
+                        <div class="flex justify-between mb-0.5 text-emerald-600 font-bold"><span>装柜:</span><input type="date" onchange="safeUpdate(${i},'loadDate',this.value)" class="w-24 clean-input text-right" value="${o.loadDate||''}"></div>
+                        <div class="flex justify-between text-blue-500 font-black"><span>ETD:</span><input type="date" onchange="safeUpdate(${i},'etd',this.value)" class="w-24 clean-input text-right" value="${o.etd||''}"></div>
                     </td>
                     <td class="px-3 py-4 text-[10px]">
                         <div class="flex flex-col gap-1">
-                            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" ${o.packing?'checked':''} onchange="upd(${i},'packing',this.checked)">包材</label>
-                            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" ${o.sinosure?'checked':''} onchange="upd(${i},'sinosure',this.checked)">信保</label>
-                            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" ${o.docs?'checked':''} onchange="upd(${i},'docs',this.checked)">单据</label>
+                            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" ${o.packing?'checked':''} onchange="safeUpdate(${i},'packing',this.checked)">包材</label>
+                            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" ${o.sinosure?'checked':''} onchange="safeUpdate(${i},'sinosure',this.checked)">信保</label>
+                            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" ${o.docs?'checked':''} onchange="safeUpdate(${i},'docs',this.checked)">单据</label>
                         </div>
                     </td>
                     <td class="px-3 py-4 text-center">
-                        <button onclick="if(confirm('删除?')){orders.splice(${i},1);db.set(orders);}" class="text-gray-300 hover:text-red-500"><i class="fas fa-trash-alt"></i></button>
+                        <button onclick="secureDelete(${i})" class="text-gray-300 hover:text-red-500"><i class="fas fa-trash-alt"></i></button>
                     </td>
                 `;
                 tbody.appendChild(tr);
             });
 
-            // 更新 UI 统计
             document.getElementById('stat-pending-hq').innerText = pending_hq.toFixed(1);
             document.getElementById('stat-total-hq').innerText = total_hq.toFixed(1);
             document.getElementById('stat-amt').innerText = '$' + t_amt.toLocaleString();
@@ -241,6 +310,7 @@
         }
 
         document.getElementById('excel-input').addEventListener('change', function(e) {
+            if (!validateAccess()) { e.target.value = ''; return; }
             const f = e.target.files[0];
             if (!f) return;
             const r = new FileReader();
@@ -255,19 +325,11 @@
                     };
                     orders.push({
                         id: Date.now() + Math.random(),
-                        company: find(["公司", "客户"]) || "-",
-                        po: find(["PO", "单号"]) || "",
-                        productionOrder: find(["生产", "PROD"]) || "",
-                        hq: parseFloat(find(["柜", "HQ"])) || 0,
-                        model: find(["型号", "MODEL"]) || "-",
-                        qty: parseFloat(find(["数量", "QTY"])) || 0,
-                        price: parseFloat(find(["单价", "PRICE"])) || 0,
-                        receivedDeposit: parseFloat(find(["订金", "Deposit"])) || 0,
-                        receivedBalance: parseFloat(find(["尾款", "Balance"])) || 0,
-                        deadline: forceDate(find(["交货", "交期"])),
-                        inspDate: forceDate(find(["验货"])),
-                        loadDate: forceDate(find(["装柜"])),
-                        etd: forceDate(find(["ETD", "离港"])),
+                        company: find(["公司", "客户"]) || "-", po: find(["PO", "单号"]) || "", productionOrder: find(["生产", "PROD"]) || "",
+                        hq: parseFloat(find(["柜", "HQ"])) || 0, model: find(["型号", "MODEL"]) || "-", qty: parseFloat(find(["数量", "QTY"])) || 0,
+                        price: parseFloat(find(["单价", "PRICE"])) || 0, receivedDeposit: parseFloat(find(["订金", "Deposit"])) || 0,
+                        receivedBalance: parseFloat(find(["尾款", "Balance"])) || 0, deadline: forceDate(find(["交货", "交期"])),
+                        inspDate: forceDate(find(["验货"])), loadDate: forceDate(find(["装柜"])), etd: forceDate(find(["ETD", "离港"])),
                         packing: false, sinosure: false, docs: false
                     });
                 });
@@ -281,8 +343,6 @@
             const blob = new Blob([JSON.stringify(orders, null, 2)], {type: "application/json"});
             const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = "Backup.json"; a.click();
         }
-
-        function resetSystem() { if(confirm("⚠️ 确定要清空全部数据吗？")) { orders = []; db.set(orders); } }
     </script>
 </body>
 </html>

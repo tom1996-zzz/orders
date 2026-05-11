@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>Tom's 外贸订单 GitHub/Firebase 版 v22.0</title>
+    <title>Tom's 外贸订单全功能修复版 v23.0</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -19,8 +19,7 @@
         .status-online { background: #dcfce7; color: #166534; }
         .status-loading { background: #fef9c3; color: #854d0e; }
         .row-shipped { background-color: #f8fafc !important; color: #94a3b8; }
-        /* 高亮交期列 */
-        .col-deadline { background-color: #f0f7ff; border-radius: 4px; border: 1px dashed #bfdbfe; }
+        .highlight-deadline { color: #2563eb; font-weight: 800; border-bottom: 2px solid #dbeafe; }
     </style>
 </head>
 <body>
@@ -30,14 +29,14 @@
             <div class="flex-1 grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div class="stat-card border-l-blue-600 flex items-center gap-3">
                     <i class="fas fa-search text-gray-400"></i>
-                    <input type="text" id="keywordSearch" oninput="render()" placeholder="搜索客户/PO/型号..." class="w-full bg-transparent border-none focus:outline-none text-sm font-bold">
+                    <input type="text" id="keywordSearch" oninput="render()" placeholder="搜索..." class="w-full bg-transparent border-none focus:outline-none text-sm font-bold">
                 </div>
                 <div class="stat-card border-l-orange-500 text-center">
-                    <p class="text-[9px] text-gray-400 uppercase font-bold">数据同步 <span id="cloudStatus" class="sync-status status-loading ml-2">同步中...</span></p>
+                    <p class="text-[9px] text-gray-400 uppercase font-bold">同步状态 <span id="cloudStatus" class="sync-status status-loading ml-2">同步中...</span></p>
                     <p class="text-lg font-black"><span id="stat-pending" class="text-orange-600">0</span> <span class="text-gray-300 mx-1">/</span> <span id="stat-hq" class="text-slate-800">0.0</span></p>
                 </div>
                 <div class="stat-card border-l-purple-500">
-                    <select id="monthFilter" onchange="render()" class="w-full bg-transparent border-none font-bold text-sm focus:outline-none cursor-pointer"></select>
+                    <select id="monthFilter" onchange="render()" class="w-full bg-transparent border-none font-bold text-sm focus:outline-none"></select>
                 </div>
                 <div class="stat-card border-l-emerald-500 flex justify-around items-center">
                     <div class="text-center"><p class="text-[9px] text-gray-400 uppercase font-bold">总值</p><p id="stat-amt" class="text-lg font-black text-emerald-600">$0</p></div>
@@ -50,20 +49,20 @@
                     <i class="fas fa-plus"></i> 新增订单
                 </button>
                 <div class="flex border bg-white rounded-xl shadow-sm overflow-hidden h-10">
-                    <label class="px-3 hover:bg-slate-50 flex items-center cursor-pointer border-r" title="导入订单">
+                    <label class="px-3 hover:bg-slate-50 flex items-center cursor-pointer border-r">
                         <i class="fas fa-file-import text-blue-500"></i>
                         <input type="file" id="excel-input" class="hidden" accept=".xlsx, .xls, .json">
                     </label>
                     <button onclick="downloadBackupJSON()" class="px-3 hover:bg-slate-50 border-r" title="备份"><i class="fas fa-save text-emerald-500"></i></button>
                     <button onclick="downloadExcelTemplate()" class="px-3 hover:bg-slate-50 border-r" title="模板"><i class="fas fa-download text-amber-500"></i></button>
-                    <button onclick="resetSystem()" class="px-3 hover:bg-red-50" title="清空所有"><i class="fas fa-trash-alt text-red-500"></i></button>
+                    <button onclick="resetSystem()" class="px-3 hover:bg-red-50" title="清空"><i class="fas fa-trash-alt text-red-500"></i></button>
                 </div>
             </div>
         </div>
 
         <div class="bg-white rounded-2xl shadow-xl border overflow-hidden">
             <table class="w-full text-left text-[11px] table-fixed">
-                <thead class="bg-slate-800 text-slate-300 text-[9px] font-bold uppercase tracking-widest">
+                <thead class="bg-slate-800 text-slate-300 text-[9px] font-bold uppercase">
                     <tr>
                         <th class="px-4 py-4 w-[160px]">客户 / PO</th>
                         <th class="px-2 py-4 text-center w-[50px]">HQ</th>
@@ -71,9 +70,9 @@
                         <th class="px-3 py-4 text-right bg-slate-700/30 w-[110px]">总货值</th>
                         <th class="px-3 py-4 text-right text-emerald-400 w-[120px]">订金收讫</th>
                         <th class="px-3 py-4 text-right text-blue-400 w-[120px]">尾款收讫</th>
-                        <th class="px-3 py-4 text-center text-red-400 w-[90px]">收汇差额</th>
-                        <th class="px-4 py-4 text-center bg-slate-50/50 w-[200px]">关键日期 (交/验/装/E)</th>
-                        <th class="px-3 py-4 text-center w-[90px]">备注/信保</th>
+                        <th class="px-3 py-4 text-center text-red-400 w-[90px]">差额</th>
+                        <th class="px-4 py-4 text-center bg-slate-50/50 w-[200px]">日期 (交/验/装/E)</th>
+                        <th class="px-3 py-4 text-center w-[95px]">状态流转</th>
                         <th class="px-3 py-4 text-center w-[80px]">操作</th>
                     </tr>
                 </thead>
@@ -83,7 +82,6 @@
     </div>
 
     <script>
-        // ======= 你的专用 Firebase API 配置 =======
         const firebaseConfig = {
             apiKey: "AIzaSyDFMZQ8Ni3mT98MahP1LwJpZBgrmqiqhV8",
             authDomain: "tom-order-2026.firebaseapp.com",
@@ -94,192 +92,14 @@
             appId: "1:608770575214:web:79a9a6445644466a548f7f",
             measurementId: "G-EHZG9EEDR5"
         };
-        // =========================================
 
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database().ref('orders');
         let orders = [];
 
-        // 核心排序逻辑：严格按照交期升序排列 (最急的排最前面)
-        function sortOrders(dataArray) {
-            return dataArray.sort((a, b) => {
-                const dateA = (a.deadline && a.deadline !== "") ? a.deadline : "9999-12-31";
-                const dateB = (b.deadline && b.deadline !== "") ? b.deadline : "9999-12-31";
-                if (dateA < dateB) return -1;
-                if (dateA > dateB) return 1;
-                return (a.id || 0) - (b.id || 0); // 日期相同按ID排
-            });
-        }
-
-        db.on('value', (snapshot) => {
-            const data = snapshot.val();
-            const rawOrders = data ? Object.values(data) : [];
-            orders = sortOrders(rawOrders); // 加载时立即排序
-            document.getElementById('cloudStatus').innerText = "云端已同步";
-            document.getElementById('cloudStatus').className = "sync-status status-online ml-2";
-            updateMonthDropdown();
-            render();
-        });
-
-        function saveToCloud() {
-            document.getElementById('cloudStatus').innerText = "自动排序保存...";
-            orders = sortOrders(orders); // 保存前再次排序
-            db.set(orders);
-        }
-
-        function upd(i, f, v) {
-            orders[i][f] = (['hq', 'qty', 'price', 'receivedDeposit', 'receivedBalance'].includes(f)) ? parseFloat(v) || 0 : v;
-            // 如果修改的是“交期”，需要触发重排并写库
-            if (f === 'deadline') {
-                saveToCloud();
-            } else {
-                db.set(orders); // 其他字段修改不影响顺序
-            }
-        }
-
-        function formatToInputDate(val) {
-            if (!val) return "";
-            if (typeof val === 'number') {
-                const date = new Date((val - 25569) * 86400 * 1000);
-                return date.toISOString().split('T')[0];
-            }
-            let dateStr = val.toString().trim().replace(/\//g, '-').replace(/\./g, '-');
-            const d = new Date(dateStr);
-            return !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : "";
-        }
-
-        function handleNewOrder() {
-            orders.push({
-                id: Date.now(), company: "新客户", po: "PO-", hq: 1, model: "-", qty: 0, price: 0, 
-                receivedDeposit: 0, depositDate: new Date().toISOString().split('T')[0],
-                receivedBalance: 0, deadline: "", loadDate: "", etd: "", 
-                sinosure: false, packing: false, docs: false
-            });
-            saveToCloud();
-        }
-
-        function render() {
-            const tbody = document.getElementById('tableBody');
-            const monthVal = document.getElementById('monthFilter').value || "all";
-            const keyword = document.getElementById('keywordSearch').value.trim().toLowerCase();
-            tbody.innerHTML = '';
-            let t_hq = 0, t_amt = 0, t_bal = 0, t_pending = 0;
-
-            orders.forEach((o, i) => {
-                const matchSearch = (o.company + o.po + o.model).toLowerCase().includes(keyword);
-                const rowMonth = o.deadline ? o.deadline.slice(0, 7) : "未定";
-                if ((monthVal !== "all" && rowMonth !== monthVal) || (keyword !== "" && !matchSearch)) return;
-
-                const total = (o.qty || 0) * (o.price || 0);
-                const diff = (o.receivedDeposit + o.receivedBalance) - total;
-                const isNotShipped = (!o.loadDate || o.loadDate === "");
-                if(isNotShipped) t_pending++;
-
-                t_hq += (o.hq || 0); t_amt += total;
-                t_bal += (total - (o.receivedDeposit + o.receivedBalance));
-
-                const tr = document.createElement('tr');
-                tr.className = `hover:bg-blue-50/40 transition ${!isNotShipped ? 'row-shipped opacity-60' : ''}`;
-                tr.innerHTML = `
-                    <td class="px-4 py-4">
-                        <div contenteditable="true" onblur="upd(${i},'company',this.innerText.trim())" class="font-bold text-slate-800 truncate">${o.company}</div>
-                        <div class="text-[9px] text-amber-600 font-bold">PO: <span contenteditable="true" onblur="upd(${i},'po',this.innerText.trim())">${o.po || ''}</span></div>
-                    </td>
-                    <td class="px-2 py-4 text-center font-black text-blue-600"><input type="number" step="0.1" onchange="upd(${i},'hq',this.value)" class="clean-input" value="${o.hq}"></td>
-                    <td class="px-3 py-4">
-                        <div contenteditable="true" onblur="upd(${i},'model',this.innerText.trim())" class="font-mono text-gray-500 font-bold truncate">${o.model}</div>
-                        <div class="text-[9px] text-gray-300 font-bold">Q:<input type="number" onchange="upd(${i},'qty',this.value)" class="w-8 clean-input" value="${o.qty}"> P:<input type="number" step="0.01" onchange="upd(${i},'price',this.value)" class="w-12 clean-input" value="${o.price}"></div>
-                    </td>
-                    <td class="px-3 py-4 text-right font-black bg-slate-50/50">$${total.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
-                    <td class="px-3 py-4 text-right">
-                        <input type="number" onchange="upd(${i},'receivedDeposit',this.value)" class="clean-input text-emerald-600 font-bold" value="${o.receivedDeposit}">
-                        <input type="date" onchange="upd(${i},'depositDate',this.value)" class="clean-input text-[8px] opacity-40 text-right" value="${o.depositDate || ''}">
-                    </td>
-                    <td class="px-3 py-4 text-right">
-                        <input type="number" onchange="upd(${i},'receivedBalance',this.value)" class="clean-input text-blue-600 font-bold" value="${o.receivedBalance}">
-                        <input type="date" onchange="upd(${i},'balanceDate',this.value)" class="clean-input text-[8px] opacity-40 text-right" value="${o.balanceDate || ''}">
-                    </td>
-                    <td class="px-3 py-4 text-center font-black ${Math.abs(diff) > 0.01 ? 'text-red-500' : 'text-slate-200'}">$${diff.toFixed(2)}</td>
-                    <td class="px-4 py-4 text-[9px] col-deadline">
-                        <div class="flex justify-between items-center mb-0.5"><span>交期:</span><input type="date" onchange="upd(${i},'deadline',this.value)" class="w-24 clean-input text-right font-black text-blue-600" value="${o.deadline||''}"></div>
-                        <div class="flex justify-between items-center mb-0.5 text-emerald-600"><span>装柜:</span><input type="date" onchange="upd(${i},'loadDate',this.value)" class="w-24 clean-input text-right font-bold" value="${o.loadDate||''}"></div>
-                        <div class="flex justify-between items-center text-slate-400"><span>ETD:</span><input type="date" onchange="upd(${i},'etd',this.value)" class="w-24 clean-input text-right" value="${o.etd||''}"></div>
-                    </td>
-                    <td class="px-3 py-4 text-[10px]">
-                        <div class="flex flex-col gap-1">
-                            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" ${o.packing?'checked':''} onchange="upd(${i},'packing',this.checked)">包材</label>
-                            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" ${o.sinosure?'checked':''} onchange="upd(${i},'sinosure',this.checked)">中信保</label>
-                        </div>
-                    </td>
-                    <td class="px-3 py-4 text-center">
-                        <button onclick="if(confirm('删除此订单?')){orders.splice(${i},1);saveToCloud();}" class="text-gray-200 hover:text-red-500 transition"><i class="fas fa-trash-alt"></i></button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-
-            document.getElementById('stat-pending').innerText = t_pending;
-            document.getElementById('stat-hq').innerText = t_hq.toFixed(1);
-            document.getElementById('stat-amt').innerText = '$' + t_amt.toLocaleString();
-            document.getElementById('stat-bal').innerText = '$' + t_bal.toLocaleString();
-        }
-
-        function updateMonthDropdown() {
-            const select = document.getElementById('monthFilter');
-            const months = [...new Set(orders.map(o => o.deadline ? o.deadline.slice(0, 7) : null))].filter(Boolean).sort().reverse();
-            select.innerHTML = '<option value="all">📅 全部交期月份</option>';
-            months.forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m; opt.innerText = m.replace('-','年') + '月';
-                select.appendChild(opt);
-            });
-        }
-
-        // 导入逻辑：导入后立即重排
-        document.getElementById('excel-input').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-                if(file.name.endsWith('.json')) {
-                    orders = sortOrders(JSON.parse(ev.target.result));
-                    saveToCloud();
-                } else {
-                    const workbook = XLSX.read(new Uint8Array(ev.target.result), {type: 'array', cellDates: true});
-                    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-                    rows.forEach(r => orders.push({
-                        id: Date.now() + Math.random(),
-                        company: r["公司"]||"-", po: r["PO"]||"-", hq: r["柜数"]||0, 
-                        model: r["型号"]||"-", qty: r["数量"]||0, price: r["单价"]||0,
-                        receivedDeposit: r["实收订金"]||0, depositDate: formatToInputDate(r["订金日期"]),
-                        receivedBalance: r["实收尾款"]||0, balanceDate: formatToInputDate(r["尾款日期"]), 
-                        deadline: formatToInputDate(r["交期"]), loadDate: formatToInputDate(r["装柜日期"]), etd: formatToInputDate(r["ETD"]),
-                        packing: r["包材到齐"]==="是", sinosure: r["中信保"]==="是"
-                    }));
-                    saveToCloud();
-                }
-            };
-            reader.readAsArrayBuffer(file);
-        });
-
-        function downloadBackupJSON() {
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(orders));
-            const dl = document.createElement('a');
-            dl.setAttribute("href", dataStr);
-            dl.setAttribute("download", "Trade_Firebase_Backup.json");
-            dl.click();
-        }
-
-        function downloadExcelTemplate() {
-            const data = [["公司", "PO", "柜数", "型号", "数量", "单价", "实收订金", "订金日期", "实收尾款", "交期", "装柜日期", "ETD", "包材到齐", "中信保"]];
-            const ws = XLSX.utils.aoa_to_sheet(data);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-            XLSX.writeFile(wb, "外贸订单导入模板.xlsx");
-        }
-
-        function resetSystem() {
-            if(confirm("确定清空云端吗？")) { orders = []; saveToCloud(); }
-        }
-    </script>
-</body>
-</html>
+        // 严格按交期升序排列
+        function sortOrders(arr) {
+            return arr.sort((a, b) => {
+                const dateA = a.deadline || "9999-12-31";
+                const dateB = b.deadline || "9999-12-31";
+                return dateA.localeCompare(

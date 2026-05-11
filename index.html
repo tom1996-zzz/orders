@@ -250,4 +250,36 @@
                         id: Date.now() + Math.random(),
                         company: r["公司"]||"-", po: r["PO"]||"-", hq: r["柜数"]||0, 
                         model: r["型号"]||"-", qty: r["数量"]||0, price: r["单价"]||0,
-                        receivedDeposit: r["实收订金"]||0, deposit
+                        receivedDeposit: r["实收订金"]||0, depositDate: formatToInputDate(r["订金日期"]),
+                        receivedBalance: r["实收尾款"]||0, balanceDate: formatToInputDate(r["尾款日期"]), 
+                        deadline: formatToInputDate(r["交期"]), loadDate: formatToInputDate(r["装柜日期"]), etd: formatToInputDate(r["ETD"]),
+                        packing: r["包材到齐"]==="是", sinosure: r["中信保"]==="是"
+                    }));
+                    saveToCloud();
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        function downloadBackupJSON() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(orders));
+            const dl = document.createElement('a');
+            dl.setAttribute("href", dataStr);
+            dl.setAttribute("download", "Trade_Firebase_Backup.json");
+            dl.click();
+        }
+
+        function downloadExcelTemplate() {
+            const data = [["公司", "PO", "柜数", "型号", "数量", "单价", "实收订金", "订金日期", "实收尾款", "交期", "装柜日期", "ETD", "包材到齐", "中信保"]];
+            const ws = XLSX.utils.aoa_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+            XLSX.writeFile(wb, "外贸订单导入模板.xlsx");
+        }
+
+        function resetSystem() {
+            if(confirm("确定清空云端吗？")) { orders = []; saveToCloud(); }
+        }
+    </script>
+</body>
+</html>
